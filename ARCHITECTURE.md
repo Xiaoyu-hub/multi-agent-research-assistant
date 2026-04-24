@@ -2710,6 +2710,426 @@ curl -X GET http://localhost:8000/api/v1/tasks/{task_id}
 # API 文档：http://localhost:8000/docs
 ```
 
+#### 5.3.6 配置管理
+
+系统支持多环境配置，通过YAML文件管理不同环境的参数：
+
+```yaml
+# configs/default.yaml - 默认开发配置
+app:
+  name: "multi-agent-research-assistant"
+  version: "0.1.0"
+  debug: true
+  log_level: "DEBUG"
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1
+  reload: true
+
+# LLM 配置
+llm:
+  provider: "opencode-zen"  # opencode-zen | openai | anthropic
+  model: "minimax-m2.5-free"
+  api_key: "${OPENCODE_API_KEY}"
+  base_url: "https://opencode.cn/openai/v1"
+  temperature: 0.7
+  max_tokens: 4096
+  timeout: 120
+
+# 多模型支持配置
+models:
+  main:
+    provider: "opencode-zen"
+    model: "minimax-m2.5-free"
+  backup:
+    provider: "opencode-zen"
+    model: "minimax-m2.5-pro"
+  embedding:
+    provider: "opencode-zen"
+    model: "text-embedding-3-small"
+
+# 搜索工具配置
+search:
+  provider: "auto"  # auto | serper | baidu | duckduckgo
+  api_key: "${SERPER_API_KEY}"
+  timeout: 30
+  max_results: 10
+  fallback_to_mcp: true  # API不可用时启用MCP
+
+# MCP 配置
+mcp:
+  enabled: true
+  servers:
+    - name: "browser"
+      command: "npx"
+      args: ["@smithery-ai/browser-use"]
+      env: {}
+  timeout: 60
+
+# RAG 配置
+rag:
+  provider: "chroma"  # chroma | qdrant | milvus
+  collection_name: "research_docs"
+  embedding_model: "text-embedding-3-small"
+  top_k: 5
+  similarity_threshold: 0.7
+  chunk_size: 512
+  chunk_overlap: 50
+
+# Memory 配置
+memory:
+  type: "redis"  # redis | memory | sqlite
+  redis_url: "${REDIS_URL}"
+  session_expire_seconds: 3600
+  max_history: 100
+
+# Agent 配置
+agents:
+  max_iterations: 10
+  timeout_per_agent: 120
+  enable_critic: true
+  enable_reflection: true
+  retry_on_failure: 3
+
+# 错误处理
+error_handling:
+  retry_enabled: true
+  max_retries: 3
+  retry_delay: 5
+  fallback_to_mcp: true
+
+# CORS 配置
+cors:
+  enabled: true
+  allow_origins: ["*"]
+  allow_methods: ["*"]
+  allow_headers: ["*"]
+```
+
+```yaml
+# configs/production.yaml - 生产环境配置
+app:
+  name: "multi-agent-research-assistant"
+  version: "0.1.0"
+  debug: false
+  log_level: "INFO"
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  reload: false
+
+# LLM 配置 - 生产用更强的模型
+llm:
+  provider: "opencode-zen"
+  model: "minimax-m2.5-pro"  # 用Pro版本
+  api_key: "${OPENCODE_API_KEY}"
+  base_url: "https://opencode.cn/openai/v1"
+  temperature: 0.5  # 更保守
+  max_tokens: 8192
+  timeout: 180
+
+models:
+  main:
+    provider: "opencode-zen"
+    model: "minimax-m2.5-pro"
+  backup:
+    provider: "openai"
+    model: "gpt-4o"
+  embedding:
+    provider: "opencode-zen"
+    model: "text-embedding-3-small"
+
+# 搜索工具配置 - 生产用付费服务
+search:
+  provider: "serper"
+  api_key: "${SERPER_API_KEY}"
+  timeout: 20
+  max_results: 15
+  fallback_to_mcp: true
+  rate_limit_wait: 2
+
+# MCP 配置 - 生产可关闭
+mcp:
+  enabled: true
+  servers:
+    - name: "browser"
+      command: "npx"
+      args: ["@smithery-ai/browser-use"]
+  timeout: 45
+
+# RAG 配置 - 生产用向量数据库
+rag:
+  provider: "qdrant"  # 用Qdrant
+  collection_name: "research_docs_prod"
+  embedding_model: "text-embedding-3-small"
+  top_k: 8
+  similarity_threshold: 0.75
+  chunk_size: 768
+  chunk_overlap: 100
+
+# Memory 配置 - 生产用Redis
+memory:
+  type: "redis"
+  redis_url: "${REDIS_URL}"
+  session_expire_seconds: 7200
+  max_history: 500
+
+# Agent 配置
+agents:
+  max_iterations: 15
+  timeout_per_agent: 180
+  enable_critic: true
+  enable_reflection: true
+  retry_on_failure: 5
+
+# 错误处理
+error_handling:
+  retry_enabled: true
+  max_retries: 5
+  retry_delay: 3
+  fallback_to_mcp: true
+
+# CORS 配置 - 生产收紧
+cors:
+  enabled: true
+  allow_origins: ["https://your-domain.com"]
+  allow_methods: ["GET", "POST"]
+  allow_headers: ["Authorization", "Content-Type"]
+
+# 限流配置
+rate_limit:
+  enabled: true
+  requests_per_minute: 60
+  burst: 10
+```
+
+```python
+# src/config.py - 配置加载实现
+import os
+import yaml
+from pathlib import Path
+from typing import Dict, Any, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+class Config:
+    """配置管理类"""
+    
+    def __init__(self, env: str = "default"):
+        self.env = env
+        self.config_dir = Path(__file__).parent.parent / "configs"
+        self._config = self._load_config()
+    
+    def _load_config(self) -> Dict[str, Any]:
+        """加载配置文件"""
+        config_file = self.config_dir / f"{self.env}.yaml"
+        
+        if not config_file.exists():
+            raise FileNotFoundError(f"配置文件不存在: {config_file}")
+        
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        
+        # 处理环境变量
+        config = self._process_env_vars(config)
+        
+        return config
+    
+    def _process_env_vars(self, config: Dict) -> Dict:
+        """处理配置中的环境变量"""
+        def replace_env_vars(obj):
+            if isinstance(obj, dict):
+                return {k: replace_env_vars(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [replace_env_vars(item) for item in obj]
+            elif isinstance(obj, str) and obj.startswith("${") and obj.endswith("}"):
+                # 环境变量格式: ${VAR_NAME}
+                var_name = obj[2:-1]
+                return os.getenv(var_name, obj)
+            return obj
+        
+        return replace_env_vars(config)
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """获取配置值"""
+        keys = key.split(".")
+        value = self._config
+        
+        for k in keys:
+            if isinstance(value, dict) and k in value:
+                value = value[k]
+            else:
+                return default
+        
+        return value
+    
+    @property
+    def llm_config(self) -> Dict:
+        """LLM配置"""
+        return self._config.get("llm", {})
+    
+    @property
+    def search_config(self) -> Dict:
+        """搜索配置"""
+        return self._config.get("search", {})
+    
+    @property
+    def rag_config(self) -> Dict:
+        """RAG配置"""
+        return self._config.get("rag", {})
+    
+    @property
+    def mcp_config(self) -> Dict:
+        """MCP配置"""
+        return self._config.get("mcp", {})
+
+
+# 全局配置实例
+_config: Optional[Config] = None
+
+
+def get_config(env: str = None) -> Config:
+    """获取配置单例"""
+    global _config
+    
+    if _config is None:
+        env = env or os.getenv("APP_ENV", "default")
+        _config = Config(env)
+    
+    return _config
+
+
+def reload_config(env: str = None) -> Config:
+    """重新加载配置"""
+    global _config
+    
+    env = env or os.getenv("APP_ENV", "default")
+    _config = Config(env)
+    
+    return _config
+```
+
+```python
+# src/schemas.py - 配置相关的数据模型
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict
+from enum import Enum
+
+
+class AppEnv(str, Enum):
+    """应用环境"""
+    DEFAULT = "default"
+    PRODUCTION = "production"
+
+
+class LLMProvider(str, Enum):
+    """LLM提供商"""
+    OPENCODE_ZEN = "opencode-zen"
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+
+
+class SearchProvider(str, Enum):
+    """搜索提供商"""
+    AUTO = "auto"
+    SERPER = "serper"
+    BAIDU = "baidu"
+    DUCKDUCKGO = "duckduckgo"
+
+
+class RAGProvider(str, Enum):
+    """RAG提供商"""
+    CHROMA = "chroma"
+    QDRANT = "qdrant"
+    MILVUS = "milvus"
+
+
+# 配置请求/响应模型
+class ConfigUpdateRequest(BaseModel):
+    """配置更新请求"""
+    log_level: Optional[str] = None
+    max_iterations: Optional[int] = None
+    temperature: Optional[float] = None
+
+
+class ConfigResponse(BaseModel):
+    """配置响应"""
+    app_name: str
+    version: str
+    debug: bool
+    llm_provider: str
+    search_provider: str
+    rag_provider: str
+```
+
+#### 5.3.7 环境变量配置
+
+```bash
+# .env - 环境变量配置模板
+
+# 应用配置
+APP_ENV=default
+DEBUG=true
+LOG_LEVEL=DEBUG
+
+# LLM配置
+OPENCODE_API_KEY=your_api_key_here
+LLM_PROVIDER=opencode-zen
+LLM_MODEL=minimax-m2.5-free
+
+# 搜索配置
+SERPER_API_KEY=your_serper_key_here
+SEARCH_PROVIDER=auto
+
+# RAG配置
+REDIS_URL=redis://localhost:6379/0
+RAG_PROVIDER=chroma
+
+# MCP配置
+MCP_ENABLED=true
+BROWSER_SEARCH_URL=http://localhost:3000/search
+```
+
+#### 5.3.8 配置使用示例
+
+```python
+# 在Agent中使用配置
+from src.config import get_config
+
+config = get_config()
+
+# 获取LLM配置
+llm_config = config.llm_config
+model = llm_config.get("model")
+temperature = llm_config.get("temperature")
+
+# 获取搜索配置
+search_config = config.search_config
+provider = search_config.get("provider")
+fallback = search_config.get("fallback_to_mcp")
+
+# 在FastAPI中使用
+from fastapi import FastAPI, Depends
+from src.config import get_config
+
+app = FastAPI()
+
+@app.get("/config")
+def get_current_config():
+    config = get_config()
+    return {
+        "app_name": config.get("app.name"),
+        "version": config.get("app.version"),
+        "debug": config.get("app.debug"),
+    }
+```
+
 ## 6. 项目结构
 
 ### 6.1 目录结构
@@ -3165,7 +3585,7 @@ flowchart TD
 | **P1** | RAG Agent Prompt | 知识库检索Prompt设计，混合检索策略 | ✅ 已完成 |
 | **P1** | FastAPI 接口 | CRUD接口设计，请求/响应模型 | ✅ 已完成 |
 | **P2** | 错误处理机制 | Agent执行失败处理，重试策略 | ✅ 已完成 |
-| **P2** | 配置管理 | default.yaml / production.yaml 详细配置 | 🔲 待补充 |
+| **P2** | 配置管理 | default.yaml / production.yaml 详细配置 | ✅ 已完成 |
 | **P3** | 部署配置 | Docker / docker-compose.yml | 🔲 待补充 |
 | **P3** | 监控配置 | Prometheus + Grafana 仪表盘 | 🔲 待补充 |
 | **P3** | 单元测试 | test_agents.py / test_tools.py | 🔲 待补充 |
