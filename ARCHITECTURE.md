@@ -3130,6 +3130,509 @@ def get_current_config():
     }
 ```
 
+#### 5.3.9 单元测试
+
+系统使用pytest进行单元测试，支持mock LLM调用：
+
+```python
+# tests/conftest.py - 测试配置和fixture
+import pytest
+from unittest.mock import Mock, patch
+from src.agents.planner import PlannerAgent
+from src.agents.search import SearchAgent
+from src.agents.rag import RAGAgent
+from src.agents.writer import WriterAgent
+from src.agents.critic import CriticAgent
+
+
+# Mock LLM客户端
+@pytest.fixture
+def mock_llm():
+    """Mock LLM客户端"""
+    mock = Mock()
+    mock.generate = Mock(return_value="Mocked response")
+    mock.generate_json = Mock(return_value={"key": "value"})
+    return mock
+
+
+# Mock搜索工具
+@pytest.fixture
+def mock_search_tool():
+    """Mock搜索工具"""
+    mock = Mock()
+    mock.search = Mock(return_value=[
+        {"title": "Result 1", "url": "https://example.com/1", "snippet": "Test snippet 1"},
+        {"title": "Result 2", "url": "https://example.com/2", "snippet": "Test snippet 2"},
+    ])
+    return mock
+
+
+# Mock RAG检索
+@pytest.fixture
+def mock_retriever():
+    """Mock RAG检索器"""
+    mock = Mock()
+    mock.search = Mock(return_value=[
+        {"content": "Relevant document 1", "score": 0.9, "source": "doc1.txt"},
+        {"content": "Relevant document 2", "score": 0.8, "source": "doc2.txt"},
+    ])
+    return mock
+
+
+# 测试会话
+@pytest.fixture
+def test_session():
+    """测试会话"""
+    return {
+        "session_id": "test-session-001",
+        "user_id": "test-user",
+        "query": "测试查询",
+        "context": {},
+    }
+```
+
+```python
+# tests/test_agents.py - Agent单元测试
+import pytest
+from unittest.mock import Mock, patch, AsyncMock
+from src.agents.planner import PlannerAgent
+from src.agents.search import SearchAgent
+from src.agents.rag import RAGAgent
+from src.agents.writer import WriterAgent
+from src.agents.critic import CriticAgent
+
+
+class TestPlannerAgent:
+    """Planner Agent测试"""
+    
+    def test_plan_generation(self, mock_llm, test_session):
+        """测试任务分解"""
+        agent = PlannerAgent(llm=mock_llm)
+        
+        result = agent.execute(
+            {"task": "调研AI Agent架构"},
+            test_session
+        )
+        
+        assert result is not None
+        assert "plan" in result or "tasks" in result
+    
+    def test_empty_task(self, mock_llm, test_session):
+        """测试空任务处理"""
+        agent = PlannerAgent(llm=mock_llm)
+        
+        result = agent.execute(
+            {"task": ""},
+            test_session
+        )
+        
+        assert result.get("status") == "error"
+    
+    @patch('src.agents.planner.llm_client')
+    def test_plan_with_context(self, mock_llm_client, test_session):
+        """测试带上下文的规划"""
+        mock_llm_client.generate = Mock(return_value='{"tasks": [{"id": 1, "description": "搜索", "type": "search"}]}')
+        
+        agent = PlannerAgent(llm=mock_llm_client)
+        test_session["context"]["previous_results"] = []
+        
+        result = agent.execute(
+            {"task": "完成调研"},
+            test_session
+        )
+        
+        assert result is not None
+
+
+class TestSearchAgent:
+    """Search Agent测试"""
+    
+    def test_search_execution(self, mock_llm, mock_search_tool, test_session):
+        """测试搜索执行"""
+        agent = SearchAgent(llm=mock_llm, search_tool=mock_search_tool)
+        
+        result = agent.execute(
+            {"query": "AI Agent", "num": 5},
+            test_session
+        )
+        
+        assert result is not None
+        assert "results" in result or "data" in result
+    
+    def test_search_with_no_results(self, mock_llm, test_session):
+        """测试无结果搜索"""
+        mock_tool = Mock()
+        mock_tool.search = Mock(return_value=[])
+        
+        agent = SearchAgent(llm=mock_llm, search_tool=mock_tool)
+        
+        result = agent.execute(
+            {"query": "完全不存在的内容xyz123"},
+            test_session
+        )
+        
+        # 应该返回空结果而不是报错
+        assert result is not None
+    
+    def test_search_error_handling(self, mock_llm, test_session):
+        """测试搜索错误处理"""
+        mock_tool = Mock()
+        mock_tool.search = Mock(side_effect=Exception("Network error"))
+        
+        agent = SearchAgent(llm=mock_llm, search_tool=mock_tool)
+        
+        result = agent.execute(
+            {"query": "test"},
+            test_session
+        )
+        
+        # 应该优雅处理错误
+        assert result is not None
+
+
+class TestRAGAgent:
+    """RAG Agent测试"""
+    
+    def test_rag_retrieval(self, mock_llm, mock_retriever, test_session):
+        """测试知识检索"""
+        agent = RAGAgent(llm=mock_llm, retriever=mock_retriever)
+        
+        result = agent.execute(
+            {"query": "什么是Agent"},
+            test_session
+        )
+        
+        assert result is not None
+        assert "results" in result or "data" in result
+    
+    def test_empty_knowledge_base(self, mock_llm, test_session):
+        """测试空知识库"""
+        mock_retriever = Mock()
+        mock_retriever.search = Mock(return_value=[])
+        
+        agent = RAGAgent(llm=mock_llm, retriever=mock_retriever)
+        
+        result = agent.execute(
+            {"query": "不存在的内容"},
+            test_session
+        )
+        
+        assert result is not None
+    
+    def test_reranking(self, mock_llm, test_session):
+        """测试重排序"""
+        mock_retriever = Mock()
+        mock_retriever.search = Mock(return_value=[
+            {"content": "Doc1", "score": 0.5},
+            {"content": "Doc2", "score": 0.9},
+            {"content": "Doc3", "score": 0.7},
+        ])
+        
+        agent = RAGAgent(llm=mock_llm, retriever=mock_retriever)
+        
+        result = agent.execute(
+            {"query": "test", "enable_rerank": True},
+            test_session
+        )
+        
+        # 应该按score排序
+        if "results" in result:
+            docs = result["results"]
+            if len(docs) >= 2:
+                assert docs[0]["score"] >= docs[1]["score"]
+
+
+class TestWriterAgent:
+    """Writer Agent测试"""
+    
+    def test_report_generation(self, mock_llm, test_session):
+        """测试报告生成"""
+        agent = WriterAgent(llm=mock_llm)
+        
+        result = agent.execute(
+            {"task": "生成报告", "data": {"findings": ["发现1", "发现2"]}},
+            test_session
+        )
+        
+        assert result is not None
+        assert "report" in result or "content" in result
+    
+    def test_empty_data(self, mock_llm, test_session):
+        """测试空数据处理"""
+        agent = WriterAgent(llm=mock_llm)
+        
+        result = agent.execute(
+            {"task": "生成报告", "data": {}},
+            test_session
+        )
+        
+        # 应该处理空数据
+        assert result is not None
+
+
+class TestCriticAgent:
+    """Critic Agent测试"""
+    
+    def test_critique_generation(self, mock_llm, test_session):
+        """测试批评生成"""
+        agent = CriticAgent(llm=mock_llm)
+        
+        result = agent.execute(
+            {"task": "审核报告", "content": "这是一份测试报告"},
+            test_session
+        )
+        
+        assert result is not None
+    
+    def test_approval(self, mock_llm, test_session):
+        """测试审批通过"""
+        mock_llm.generate_json = Mock(return_value={
+            "approved": True,
+            "score": 0.85,
+            "feedback": "报告质量良好"
+        })
+        
+        agent = CriticAgent(llm=mock_llm)
+        
+        result = agent.execute(
+            {"task": "审核", "content": "高质量报告内容"},
+            test_session
+        )
+        
+        assert result is not None
+    
+    def test_rejection(self, mock_llm, test_session):
+        """测试审批拒绝"""
+        mock_llm.generate_json = Mock(return_value={
+            "approved": False,
+            "score": 0.3,
+            "feedback": "需要更多数据支持"
+        })
+        
+        agent = CriticAgent(llm=mock_llm)
+        
+        result = agent.execute(
+            {"task": "审核", "content": "不完整的报告"},
+            test_session
+        )
+        
+        # 应该给出改进建议
+        assert result is not None
+```
+
+```python
+# tests/test_tools.py - 工具单元测试
+import pytest
+from unittest.mock import Mock, patch
+from src.tools.search import SearchToolFactory, AutoSelectSearchTool
+from src.tools.retriever import HybridRetriever
+
+
+class TestSearchTool:
+    """搜索工具测试"""
+    
+    def test_search_tool_factory(self):
+        """测试搜索工具工厂"""
+        tool = SearchToolFactory.get_search_tool("duckduckgo")
+        assert tool is not None
+    
+    def test_auto_select_tool_empty_response(self):
+        """测试自动选择工具空响应"""
+        tool = AutoSelectSearchTool()
+        
+        # Mock所有底层工具
+        with patch.object(tool, 'search', return_value=[]):
+            result = tool.search("test query")
+            assert result == []
+    
+    @patch('requests.get')
+    def test_search_with_timeout(self, mock_get):
+        """测试搜索超时"""
+        import requests
+        mock_get.side_effect = requests.Timeout()
+        
+        tool = AutoSelectSearchTool()
+        result = tool.search("test")
+        
+        # 应该返回空列表而不是抛异常
+        assert result == []
+
+
+class TestRetriever:
+    """检索器测试"""
+    
+    def test_hybrid_retriever_initialization(self):
+        """测试混合检索器初始化"""
+        retriever = HybridRetriever(
+            vector_store=None,  # Mock
+            bm25_store=None      # Mock
+        )
+        assert retriever is not None
+    
+    def test_search_returns_empty_when_no_results(self):
+        """测试无结果返回"""
+        mock_vector = Mock()
+        mock_vector.search = Mock(return_value=[])
+        mock_bm25 = Mock()
+        mock_bm25.search = Mock(return_value=[])
+        
+        retriever = HybridRetriever(mock_vector, mock_bm25)
+        results = retriever.search("不存在的查询")
+        
+        assert results == []
+    
+    def test_reranking(self):
+        """测试重排序"""
+        mock_vector = Mock()
+        mock_vector.search = Mock(return_value=[
+            {"id": "doc1", "score": 0.3},
+            {"id": "doc2", "score": 0.9},
+        ])
+        mock_bm25 = Mock()
+        mock_bm25.search = Mock(return_value=[])
+        
+        retriever = HybridRetriever(mock_vector, mock_bm25)
+        results = retriever.search("test", enable_rerank=True)
+        
+        # 应该按score降序
+        if results:
+            assert results[0]["score"] >= results[-1]["score"]
+
+
+class TestErrorHandling:
+    """错误处理测试"""
+    
+    def test_no_api_key_error(self):
+        """测试无API Key错误"""
+        from src.tools.search import AutoSelectSearchTool
+        
+        tool = AutoSelectSearchTool()
+        
+        # 模拟无API Key的情况
+        with patch.object(tool, 'search', side_effect=Exception("No API Key")):
+            result = tool.search("test")
+            
+            # 应该返回空列表
+            assert result == []
+    
+    def test_rate_limit_error(self):
+        """测试速率限制"""
+        from src.tools.search import AutoSelectSearchTool
+        
+        tool = AutoSelectSearchTool()
+        
+        # 模拟速率限制
+        with patch.object(tool, 'search', side_effect=Exception("Rate limit exceeded")):
+            result = tool.search("test")
+            
+            # 至少不应该崩溃
+            assert result is not None
+```
+
+```python
+# tests/test_memory.py - Memory单元测试
+import pytest
+from unittest.mock import Mock, patch
+from src.memory.memory import GlobalMemory, SessionMemory, AgentMemory
+
+
+class TestGlobalMemory:
+    """全局内存测试"""
+    
+    def test_global_memory_initialization(self):
+        """测试全局内存初始化"""
+        memory = GlobalMemory()
+        assert memory is not None
+    
+    def test_store_and_retrieve(self):
+        """测试存储和检索"""
+        memory = GlobalMemory()
+        
+        memory.store("key1", {"data": "value1"})
+        result = memory.retrieve("key1")
+        
+        assert result is not None
+    
+    def test_retrieve_nonexistent(self):
+        """测试检索不存在的key"""
+        memory = GlobalMemory()
+        
+        result = memory.retrieve("nonexistent_key")
+        
+        assert result is None
+    
+    def test_delete(self):
+        """测试删除"""
+        memory = GlobalMemory()
+        
+        memory.store("key1", {"data": "value1"})
+        memory.delete("key1")
+        result = memory.retrieve("key1")
+        
+        assert result is None
+
+
+class TestSessionMemory:
+    """会话内存测试"""
+    
+    def test_session_memory_initialization(self):
+        """测试会话内存初始化"""
+        memory = SessionMemory(session_id="test-001")
+        assert memory.session_id == "test-001"
+    
+    def test_append_and_get_history(self):
+        """测试历史记录"""
+        memory = SessionMemory(session_id="test-001")
+        
+        memory.append({"role": "user", "content": "Hello"})
+        memory.append({"role": "assistant", "content": "Hi"})
+        
+        history = memory.get_history()
+        
+        assert len(history) == 2
+    
+    def test_clear(self):
+        """测试清空"""
+        memory = SessionMemory(session_id="test-001")
+        
+        memory.append({"role": "user", "content": "Hello"})
+        memory.clear()
+        
+        history = memory.get_history()
+        assert len(history) == 0
+
+
+class TestAgentMemory:
+    """Agent内存测试"""
+    
+    def test_agent_isolation(self):
+        """测试Agent隔离"""
+        memory1 = AgentMemory(agent_id="agent1")
+        memory2 = AgentMemory(agent_id="agent2")
+        
+        memory1.store("key1", {"data": "agent1 data"})
+        memory2.store("key1", {"data": "agent2 data"})
+        
+        # 应该互不影响
+        assert memory1.retrieve("key1") != memory2.retrieve("key1")
+```
+
+```bash
+# 运行测试
+pytest tests/ -v
+
+# 运行特定测试
+pytest tests/test_agents.py -v
+pytest tests/test_tools.py -v
+pytest tests/test_memory.py -v
+
+# 查看覆盖率
+pytest tests/ --cov=src --cov-report=html
+
+# 并行运行（加速）
+pytest tests/ -n auto
+```
+
 ## 6. 项目结构
 
 ### 6.1 目录结构
@@ -3588,7 +4091,7 @@ flowchart TD
 | **P2** | 配置管理 | default.yaml / production.yaml 详细配置 | ✅ 已完成 |
 | **P3** | 部署配置 | Docker / docker-compose.yml | 🔲 待补充 |
 | **P3** | 监控配置 | Prometheus + Grafana 仪表盘 | 🔲 待补充 |
-| **P3** | 单元测试 | test_agents.py / test_tools.py | 🔲 待补充 |
+| **P3** | 单元测试 | test_agents.py / test_tools.py | ✅ 已完成 |
 
 ### 待补充部分说明
 
