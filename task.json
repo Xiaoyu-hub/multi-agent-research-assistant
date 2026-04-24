@@ -1,319 +1,709 @@
 {
   "project": "Multi-Agent Research Assistant",
   "description": "基于多Agent协作的AI研究助手，支持RAG检索、搜索与报告生成",
+  "reference": "参考ARCHITECTURE.md (4111行)",
   "tasks": [
     {
       "id": 1,
-      "title": "环境配置 - .env和configs",
-      "description": "创建环境配置文件和YAML配置",
-      "context": "项目需要OPENCODE_API_KEY来调用LLM，需要SERPER_API_KEY用于搜索。需要configs/default.yaml和production.yaml",
+      "title": "配置 - .env环境变量",
+      "description": "创建环境变量配置文件",
+      "context": "参考ARCHITECTURE.md 5.3.7节，需要OPENCODE_API_KEY, SERPER_API_KEY, REDIS_URL等",
       "steps": [
-        "创建.env.example文件（包含OPENCODE_API_KEY, SERPER_API_KEY, REDIS_URL等变量）",
-        "创建.env文件（从.env.example复制）",
-        "创建configs/default.yaml（开发配置，使用minimax-m2.5-free）",
-        "创建configs/production.yaml（生产配置，使用minimax-m2.5-pro）"
+        "创建.env.example模板文件",
+        "复制创建.env文件",
+        "验证必需的环境变量"
       ],
       "passes": false
     },
     {
       "id": 2,
-      "title": "配置加载器 - src/config.py",
-      "description": "实现配置管理类，加载YAML和环境变量",
-      "context": "参考ARCHITECTURE.md 5.3.6节，需要实现Config类，支持多环境切换和环境变量替换${VAR_NAME}格式",
+      "title": "配置 - default.yaml",
+      "description": "创建开发环境配置文件",
+      "context": "参考ARCHITECTURE.md 5.3.6节default.yaml部分",
       "steps": [
-        "创建src/config.py",
-        "实现Config类，__init__接收env参数",
-        "实现_load_config()加载YAML文件",
-        "实现_process_env_vars()替换${VAR_NAME}",
-        "实现get()方法，支持点号读取如'llm.model'",
-        "实现llm_config, search_config, rag_config, mcp_config属性",
-        "实现get_config()单例函数"
+        "创建configs目录",
+        "创建configs/default.yaml",
+        "配置app/server/llm/search/mcp/rag/memory/agents/error_handling/cors"
       ],
       "passes": false
     },
     {
       "id": 3,
-      "title": "LLM封装 - src/llm/opencode_zen.py",
-      "description": "封装OpenCode Zen API调用",
-      "context": "参考ARCHITECTURE.md 5.3.0节，需要实现OpenCodeZenLLM类，支持chat和embedding",
+      "title": "配置 - production.yaml",
+      "description": "创建生产环境配置文件",
+      "context": "参考ARCHITECTURE.md 5.3.6节production.yaml部分",
       "steps": [
-        "创建src/llm/__init__.py",
-        "创建src/llm/opencode_zen.py",
-        "实现OpenCodeZenLLM类，__init__读取config",
-        "实现generate()方法调用chat API",
-        "实现generate_json()方法返回JSON",
-        "实现embed()方法调用embedding API",
-        "实现stream参数支持流式输出"
+        "创建configs/production.yaml",
+        "配置生产级参数(workers=4, debug=false等)",
+        "配置限流rate_limit"
       ],
       "passes": false
     },
     {
       "id": 4,
-      "title": "搜索工具 - API搜索",
-      "description": "实现基于API的搜索工具",
-      "context": "参考ARCHITECTURE.md 4.2.5节，需要支持Serper/Baidu/DuckDuckGo，需要API Key",
+      "title": "配置 - src/config.py",
+      "description": "实现配置加载器",
+      "context": "参考ARCHITECTURE.md 5.3.6节Config类实现",
       "steps": [
-        "创建src/tools/search.py",
-        "实现SearchToolFactory.get_search_tool()",
-        "实现SerperSearchTool（需要SERPER_API_KEY）",
-        "实现BaiduSearchTool（需要BAIDU_API_KEY）",
-        "实现DuckDuckGoSearchTool",
-        "实现AutoSelectSearchTool按优先级尝试"
+        "创建src/config.py",
+        "实现Config类加载YAML",
+        "实现环境变量替换${VAR_NAME}",
+        "实现get()点号读取",
+        "实现llm_config等属性"
       ],
       "passes": false
     },
     {
       "id": 5,
-      "title": "搜索工具 - MCP浏览器",
-      "description": "实现MCP真实浏览器搜索（无需API Key）",
-      "context": "参考ARCHITECTURE.md 4.2.6节，当API不可用时降级到MCP浏览器搜索",
+      "title": "配置 - src/schemas.py",
+      "description": "创建配置相关的数据模型",
+      "context": "参考ARCHITECTURE.md 5.3.6节 schemas实现",
       "steps": [
-        "实现MCPSearchTool类",
-        "实现_mcp_search()调用MCP browser",
-        "实现_fallback_to_mcp()降级方法",
-        "集成到SearchToolWithFallback"
+        "创建src/schemas.py",
+        "实现AppEnv/LLMProvider/SearchProvider/RAGProvider枚举",
+        "实现ConfigUpdateRequest/ConfigResponse模型"
       ],
       "passes": false
     },
     {
       "id": 6,
-      "title": "搜索工具 - 错误处理和降级策略",
-      "description": "实现搜索工具的完整错误处理",
-      "context": "参考ARCHITECTURE.md 4.2.7和4.2.8节，处理无API Key、速率限制、网络错误",
+      "title": "LLM - src/llm/__init__.py",
+      "description": "创建LLM模块初始化",
+      "context": "创建LLM模块目录结构",
       "steps": [
-        "实现SearchErrorType枚举",
-        "实现SearchErrorHandler错误分类",
-        "实现handle_error()错误处理方法",
-        "实现SearchToolWithFallback降级策略",
-        "实现AgentErrorHandler Agent级别重试"
+        "创建src/llm目录",
+        "创建src/llm/__init__.py",
+        "导出LLMClient接口"
       ],
       "passes": false
     },
     {
       "id": 7,
-      "title": "RAG检索器 - Chroma向量存储",
-      "description": "实现基于Chroma的向量检索",
-      "context": "参考ARCHITECTURE.md 4.3.4节，需要实现向量检索、关键词检索、混合检索",
+      "title": "LLM - OpenCodeZenLLM封装",
+      "description": "实现OpenCode Zen LLM客户端",
+      "context": "参考ARCHITECTURE.md 5.3.0节，封装https://opencode.cn/openai/v1调用",
       "steps": [
-        "创建src/tools/retriever.py",
-        "实现ChromaVectorStore类",
-        "实现add_documents()添加文档",
-        "实现search()向量相似度搜索",
-        "实现delete()删除文档"
+        "创建src/llm/opencode_zen.py",
+        "实现OpenCodeZenLLM类",
+        "实现generate() chat完成",
+        "实现generate_json() JSON输出",
+        "实现embed() 向量化"
       ],
       "passes": false
     },
     {
       "id": 8,
-      "title": "RAG检索器 - BM25混合检索",
-      "description": "实现BM25关键词检索和混合检索",
-      "context": "参考ARCHITECTURE.md 4.3.4节，结合向量检索和BM25实现混合检索",
+      "title": "LLM - 多Provider支持",
+      "description": "添加更多LLM Provider支持",
+      "context": "参考ARCHITECTURE.md 5.3.1节，支持OpenAI/Anthropic切换",
       "steps": [
-        "实现BM25Retrieval类（使用rank-bm25）",
-        "实现HybridRetriever混合检索类",
-        "实现search()同时返回向量和BM25结果",
-        "实现rerank()重排序方法"
+        "创建src/llm/openai.py",
+        "创建src/llm/anthropic.py",
+        "实现LLMFactory工厂类",
+        "实现get_llm_client()方法"
       ],
       "passes": false
     },
     {
       "id": 9,
-      "title": "Memory管理 - Global/Session/Agent三层",
-      "description": "实现四层Memory架构",
-      "context": "参考ARCHITECTURE.md 5.3.2节，实现Global/Session/Agent/History四层",
+      "title": "搜索工具 - src/tools/__init__.py",
+      "description": "创建搜索工具模块",
+      "context": "创建tools模块目录",
       "steps": [
-        "创建src/memory/memory.py",
-        "实现GlobalMemory全局内存",
-        "实现SessionMemory会话内存",
-        "实现AgentMemory Agent隔离内存",
-        "实现HistoryMemory历史记录"
+        "创建src/tools目录",
+        "创建src/tools/__init__.py",
+        "导出搜索工具"
       ],
       "passes": false
     },
     {
       "id": 10,
-      "title": "Planner Agent",
-      "description": "实现任务规划Agent",
-      "context": "参考ARCHITECTURE.md 4.1节，负责任务分解，输出子任务列表",
+      "title": "搜索工具 - SerperSearchTool",
+      "description": "实现Google Serper搜索",
+      "context": "参考ARCHITECTURE.md 4.2.5节，需要SERPER_API_KEY",
       "steps": [
-        "创建src/agents/planner.py",
-        "实现PlannerAgent类",
-        "实现execute()任务分解方法",
-        "接入LLM生成任务计划"
+        "创建SerperSearchTool类",
+        "实现search()方法",
+        "实现_parse_results()解析"
       ],
       "passes": false
     },
     {
       "id": 11,
-      "title": "Search Agent - 论文搜索",
-      "description": "实现学术论文搜索Agent",
-      "context": "参考ARCHITECTURE.md 4.2.1节，负责搜索学术论文",
+      "title": "搜索工具 - BaiduSearchTool",
+      "description": "实现百度搜索",
+      "context": "参考ARCHITECTURE.md 4.2.5节，需要BAIDU_API_KEY",
       "steps": [
-        "创建src/agents/search.py",
-        "实现PaperSearchAgent类",
-        "实现arxiv搜索集成",
-        "接入搜索工具"
+        "创建BaiduSearchTool类",
+        "实现search()方法"
       ],
       "passes": false
     },
     {
       "id": 12,
-      "title": "Search Agent - 行业搜索",
-      "description": "实现行业信息搜索Agent",
-      "context": "参考ARCHITECTURE.md 4.2.2节，负责搜索行业报告、新闻",
+      "title": "搜索工具 - DuckDuckGoSearchTool",
+      "description": "实现DuckDuckGo搜索",
+      "context": "参考ARCHITECTURE.md 4.2.5节，免费搜索",
       "steps": [
-        "实现IndustrySearchAgent类",
-        "继承SearchAgent基类",
-        "实现行业特定搜索逻辑"
+        "创建DuckDuckGoSearchTool类",
+        "实现search()方法"
       ],
       "passes": false
     },
     {
       "id": 13,
-      "title": "Search Agent - 技术搜索",
-      "description": "实现技术文档搜索Agent",
-      "context": "参考ARCHITECTURE.md 4.2.3节，负责搜索技术文档、���客",
+      "title": "搜索工具 - SearchToolFactory",
+      "description": "实现搜索工具工厂",
+      "context": "参考ARCHITECTURE.md 4.2.5节",
       "steps": [
-        "实现TechSearchAgent类",
-        "继承SearchAgent基类",
-        "实现技术特定搜索逻辑"
+        "创建SearchToolFactory类",
+        "实现get_search_tool()方法",
+        "实现auto自动选择"
       ],
       "passes": false
     },
     {
       "id": 14,
-      "title": "RAG Agent",
-      "description": "实现知识库检索Agent",
-      "context": "参考ARCHITECTURE.md 4.3节，基于私有知识回答问题",
+      "title": "搜索工具 - MCPSearchTool",
+      "description": "实现MCP浏览器搜索",
+      "context": "参考ARCHITECTURE.md 4.2.6节，无需API Key",
       "steps": [
-        "创建src/agents/rag.py",
-        "实现RAGAgent类",
-        "实现知识检索方法",
-        "接入混合检索器"
+        "创建MCPSearchTool类",
+        "实现MCP调用",
+        "实现HTTPfallback"
       ],
       "passes": false
     },
     {
       "id": 15,
-      "title": "Writer Agent",
-      "description": "实现报告生成Agent",
-      "context": "参考ARCHITECTURE.md 4.4节，整合搜索和RAG结果生成报告",
+      "title": "搜索工具 - SearchToolWithFallback",
+      "description": "实现搜索降级策略",
+      "context": "参考ARCHITECTURE.md 4.2.7节，API→MCP→Direct",
       "steps": [
-        "创建src/agents/writer.py",
-        "实现WriterAgent类",
-        "实现execute()报告生成方法",
-        "实现修订流程"
+        "创建SearchToolWithFallback类",
+        "实现优先级尝试",
+        "捕获错误并继续"
       ],
       "passes": false
     },
     {
       "id": 16,
-      "title": "Critic Agent",
-      "description": "实现质量审核Agent",
-      "context": "参考ARCHITECTURE.md 4.5节，审核报告质量并给出改进建议",
+      "title": "搜索工具 - SearchErrorHandler",
+      "description": "实现搜索错误处理",
+      "context": "参考ARCHITECTURE.md 4.2.8节，错误分类和处理",
       "steps": [
-        "创建src/agents/critic.py",
-        "实现CriticAgent类",
-        "实现质量评估方法",
-        "实现approve/reject逻辑"
+        "创建SearchErrorType枚举",
+        "创建SearchErrorHandler类",
+        "实现classify_error()",
+        "实现handle_error()降级"
       ],
       "passes": false
     },
     {
       "id": 17,
-      "title": "FastAPI应用 - 主入口",
-      "description": "实现FastAPI应用主入口",
-      "context": "参考ARCHITECTURE.md 5.3.4节，实现app.py和基础路由",
+      "title": "搜索工具 - AgentErrorHandler",
+      "description": "实现Agent级别错误处理",
+      "context": "参考ARCHITECTURE.md 4.2.8节",
       "steps": [
-        "创建src/app.py",
-        "实现FastAPI应用配置",
-        "实现健康检查路由GET /api/v1/health",
-        "配置CORS"
+        "创建AgentErrorHandler类",
+        "实现execute_with_retry()",
+        "实现_is_valid_result()验证"
       ],
       "passes": false
     },
     {
       "id": 18,
-      "title": "FastAPI - 查询接口",
-      "description": "实现查询任务创建和状态查询接口",
-      "context": "参考ARCHITECTURE.md 5.3.4节",
+      "title": "RAG - src/tools/retriever.py",
+      "description": "创建RAG检索器模块",
+      "context": "创建retriever模块",
       "steps": [
-        "实现POST /api/v1/query 创建查询任务",
-        "实现GET /api/v1/tasks/{task_id} 查询状态",
-        "实现QueryRequest/QueryResponse模型",
-        "实现Task模型"
+        "创建src/tools/retriever.py",
+        "实现Retriever基类"
       ],
       "passes": false
     },
     {
       "id": 19,
-      "title": "FastAPI - 知识库管理接口",
-      "description": "实现RAG知识库的CRUD接口",
-      "context": "参考ARCHITECTURE.md 5.3.4节",
+      "title": "RAG - ChromaVectorStore",
+      "description": "实现Chroma向量存储",
+      "context": "参考ARCHITECTURE.md 4.3.4节",
       "steps": [
-        "实现POST /api/v1/knowledge 上传文档",
-        "实现GET /api/v1/knowledge/{id} 获取文档",
-        "实现DELETE /api/v1/knowledge/{id} 删除文档",
-        "实现POST /api/v1/knowledge/index 创建索引"
+        "创建ChromaVectorStore类",
+        "实现add_documents()",
+        "实现search()向量检索",
+        "实现delete()"
       ],
       "passes": false
     },
     {
       "id": 20,
-      "title": "单元测试 - conftest",
-      "description": "创建测试fixtures",
-      "context": "参考ARCHITECTURE.md 5.3.9节，创建mock LLM/search/retriever的fixture",
+      "title": "RAG - BM25Retrieval",
+      "description": "实现BM25关键词检索",
+      "context": "参考ARCHITECTURE.md 4.3.4节，使用rank-bm25",
       "steps": [
-        "创建tests/conftest.py",
-        "创建mock_llm fixture",
-        "创建mock_search_tool fixture",
-        "创建mock_retriever fixture",
-        "创建test_session fixture"
+        "创建BM25Retrieval类",
+        "实现add_documents()",
+        "实现search()关键词检索"
       ],
       "passes": false
     },
     {
       "id": 21,
-      "title": "单元测试 - Agent测试",
-      "description": "实现Agent单元测试",
-      "context": "参考ARCHITECTURE.md 5.3.9节",
+      "title": "RAG - HybridRetriever",
+      "description": "实现混合检索",
+      "context": "参考ARCHITECTURE.md 4.3.4节，结合向量和BM25",
       "steps": [
-        "创建tests/test_agents.py",
-        "实现TestPlannerAgent测试",
-        "实现TestSearchAgent测试",
-        "实现TestRAGAgent测试",
-        "实现TestWriterAgent测试",
-        "实现TestCriticAgent测试"
+        "创建HybridRetriever类",
+        "实现search()同时返回",
+        "实现rerank()重排序"
       ],
       "passes": false
     },
     {
       "id": 22,
-      "title": "单元测试 - 工具和Memory测试",
-      "description": "实现工具和Memory测试",
-      "context": "参考ARCHITECTURE.md 5.3.9节",
+      "title": "RAG - RAGEvaluation",
+      "description": "实现RAG效果评估",
+      "context": "参考ARCHITECTURE.md 4.3.3节",
       "steps": [
-        "创建tests/test_tools.py",
-        "实现TestSearchTool测试",
-        "实现TestRetriever测试",
-        "实现TestErrorHandling测试",
-        "创建tests/test_memory.py",
-        "实现TestGlobalMemory测试",
-        "实现TestSessionMemory测试",
-        "实现TestAgentMemory测试"
+        "创建RAGEvaluation类",
+        "实现相关性评估",
+        "实现 faithfulness",
+        "实现答案相关性"
       ],
       "passes": false
     },
     {
       "id": 23,
-      "title": "项目整合 - 运行验证",
-      "description": "整合所有模块并验证运行",
-      "context": "确保所有模块可以正常启动和协作",
+      "title": "Memory - src/memory/__init__.py",
+      "description": "创建Memory模块",
+      "context": "创建memory模块目录",
       "steps": [
-        "运行init.sh启动服务",
-        "测试curl http://localhost:8000/api/v1/health",
-        "测试创建查询任务",
-        "验证Agent协作流程"
+        "创建src/memory目录",
+        "创建src/memory/__init__.py",
+        "导出Memory类"
+      ],
+      "passes": false
+    },
+    {
+      "id": 24,
+      "title": "Memory - GlobalMemory",
+      "description": "实现全局内存",
+      "context": "参考ARCHITECTURE.md 5.3.2.2节",
+      "steps": [
+        "创建GlobalMemory类",
+        "实现store()/retrieve()/delete()"
+      ],
+      "passes": false
+    },
+    {
+      "id": 25,
+      "title": "Memory - SessionMemory",
+      "description": "实现会话内存",
+      "context": "参考ARCHITECTURE.md 5.3.2.3节",
+      "steps": [
+        "创建SessionMemory类",
+        "实现session_id管理",
+        "实现append()/get_history()/clear()"
+      ],
+      "passes": false
+    },
+    {
+      "id": 26,
+      "title": "Memory - AgentMemory",
+      "description": "实现Agent隔离内存",
+      "context": "参考ARCHITECTURE.md 5.3.2.4节",
+      "steps": [
+        "创建AgentMemory类",
+        "实现agent_id隔离",
+        "实现store()/retrieve()"
+      ],
+      "passes": false
+    },
+    {
+      "id": 27,
+      "title": "Memory - HistoryMemory",
+      "description": "实现历史归档",
+      "context": "参考ARCHITECTURE.md 5.3.2.5节",
+      "steps": [
+        "创建HistoryMemory类",
+        "实现存档/检索"
+      ],
+      "passes": false
+    },
+    {
+      "id": 28,
+      "title": "Agent - src/agents/__init__.py",
+      "description": "创建Agent模块",
+      "context": "创建agents模块目录",
+      "steps": [
+        "创建src/agents目录",
+        "创建src/agents/__init__.py",
+        "导出Agent类"
+      ],
+      "passes": false
+    },
+    {
+      "id": 29,
+      "title": "Agent - Planner Agent基础",
+      "description": "实现Planner Agent基础",
+      "context": "参考ARCHITECTURE.md 4.1节，任务分解",
+      "steps": [
+        "创建src/agents/planner.py",
+        "创建PlannerAgent类",
+        "实现BaseAgent基类"
+      ],
+      "passes": false
+    },
+    {
+      "id": 30,
+      "title": "Agent - Planner Prompt",
+      "description": "实现Planner任务分解Prompt",
+      "context": "参考ARCHITECTURE.md 4.1节Prompt设计",
+      "steps": [
+        "实现任务类型识别",
+        "实现信息需求分析",
+        "实现任务分解",
+        "实现执行顺序规划",
+        "实现异常处理预案"
+      ],
+      "passes": false
+    },
+    {
+      "id": 31,
+      "title": "Agent - Search Agent基础",
+      "description": "实现Search Agent基础",
+      "context": "参考ARCHITECTURE.md 4.2节",
+      "steps": [
+        "创建src/agents/search.py",
+        "创建SearchAgent基类",
+        "实现统一执行框架"
+      ],
+      "passes": false
+    },
+    {
+      "id": 32,
+      "title": "Agent - Paper Search Prompt",
+      "description": "实现论文搜索Prompt",
+      "context": "参考ARCHITECTURE.md 4.2.1节",
+      "steps": [
+        "实现学术论文搜索Prompt",
+        "实现arxiv/Semantic Scholar优先级",
+        "实现输出格式"
+      ],
+      "passes": false
+    },
+    {
+      "id": 33,
+      "title": "Agent - Industry Search Prompt",
+      "description": "实现行业搜索Prompt",
+      "context": "参考ARCHITECTURE.md 4.2.2节",
+      "steps": [
+        "实现行业报告搜索Prompt",
+        "实现数据源优先级",
+        "实现输出格式"
+      ],
+      "passes": false
+    },
+    {
+      "id": 34,
+      "title": "Agent - Tech Search Prompt",
+      "description": "实现技术搜索Prompt",
+      "context": "参考ARCHITECTURE.md 4.2.3节",
+      "steps": [
+        "实现技术文档搜索Prompt",
+        "实现技术博客优先级",
+        "实现输出格式"
+      ],
+      "passes": false
+    },
+    {
+      "id": 35,
+      "title": "Agent - RAG Agent基础",
+      "description": "实现RAG Agent基础",
+      "context": "参考ARCHITECTURE.md 4.3节",
+      "steps": [
+        "创建src/agents/rag.py",
+        "创建RAGAgent类",
+        "接入HybridRetriever"
+      ],
+      "passes": false
+    },
+    {
+      "id": 36,
+      "title": "Agent - RAG Prompt",
+      "description": "实现RAG检索Prompt",
+      "context": "参考ARCHITECTURE.md 4.3.1节",
+      "steps": [
+        "实现工作流程Prompt",
+        "实现检索策略",
+        "实现输出格式"
+      ],
+      "passes": false
+    },
+    {
+      "id": 37,
+      "title": "Agent - Writer Agent",
+      "description": "实现Writer Agent",
+      "context": "参考ARCHITECTURE.md 4.4节",
+      "steps": [
+        "创建src/agents/writer.py",
+        "创建WriterAgent类",
+        "实现报告结构生成"
+      ],
+      "passes": false
+    },
+    {
+      "id": 38,
+      "title": "Agent - Writer Prompt",
+      "description": "实现报告生成Prompt",
+      "context": "参考ARCHITECTURE.md 4.4.1节",
+      "steps": [
+        "实现任务类型Prompt",
+        "实现报告结构要求",
+        "实现质量要求"
+      ],
+      "passes": false
+    },
+    {
+      "id": 39,
+      "title": "Agent - Writer多轮修订",
+      "description": "实现多轮修订支持",
+      "context": "参考ARCHITECTURE.md 4.4.3节",
+      "steps": [
+        "实现修订Prompt",
+        "实现补充/修正/加强"
+      ],
+      "passes": false
+    },
+    {
+      "id": 40,
+      "title": "Agent - Critic Agent",
+      "description": "实现Critic Agent",
+      "context": "参考ARCHITECTURE.md 4.5节",
+      "steps": [
+        "创建src/agents/critic.py",
+        "创建CriticAgent类",
+        "实现质量评估"
+      ],
+      "passes": false
+    },
+    {
+      "id": 41,
+      "title": "Agent - Critic Prompt",
+      "description": "实现质量审核Prompt",
+      "context": "参考ARCHITECTURE.md 4.5节Prompt设计",
+      "steps": [
+        "实现评估维度",
+        "实现评分标准",
+        "实现approve/reject"
+      ],
+      "passes": false
+    },
+    {
+      "id": 42,
+      "title": "FastAPI - src/app.py基础",
+      "description": "创建FastAPI应用基础",
+      "context": "参考ARCHITECTURE.md 5.3.4节",
+      "steps": [
+        "创建src/app.py",
+        "配置FastAPI metadata",
+        "配置CORS"
+      ],
+      "passes": false
+    },
+    {
+      "id": 43,
+      "title": "FastAPI - 健康检查",
+      "description": "实现健康检查接口",
+      "context": "参考ARCHITECTURE.md 5.3.4节",
+      "steps": [
+        "实现GET /api/v1/health",
+        "实现健康检查模型"
+      ],
+      "passes": false
+    },
+    {
+      "id": 44,
+      "title": "FastAPI - 查询请求模型",
+      "description": "实现查询相关数据模型",
+      "context": "参考ARCHITECTURE.md 5.3.4节数据模型",
+      "steps": [
+        "实现QueryRequest模型",
+        "实现QueryResponse模型",
+        "实现Task模型",
+        "实现TaskStatus模型"
+      ],
+      "passes": false
+    },
+    {
+      "id": 45,
+      "title": "FastAPI - 创建查询接口",
+      "description": "实现POST /api/v1/query",
+      "context": "参考ARCHITECTURE.md 5.3.4节",
+      "steps": [
+        "实现创建查询路由",
+        "实现Agent协作执行",
+        "实现任务状态管理"
+      ],
+      "passes": false
+    },
+    {
+      "id": 46,
+      "title": "FastAPI - 查询状态接口",
+      "description": "实现GET /api/v1/tasks/{id}",
+      "context": "参考ARCHITECTURE.md 5.3.4节",
+      "steps": [
+        "实现查询状态路由",
+        "实现任务结果返回"
+      ],
+      "passes": false
+    },
+    {
+      "id": 47,
+      "title": "FastAPI - 知识库上传",
+      "description": "实现POST /api/v1/knowledge",
+      "context": "参考ARCHITECTURE.md 5.3.4节知识库管理",
+      "steps": [
+        "实现文档上传路由",
+        "实现文本分块",
+        "实现向量化存储"
+      ],
+      "passes": false
+    },
+    {
+      "id": 48,
+      "title": "FastAPI - 知识库查询",
+      "description": "实现GET /api/v1/knowledge/{id}",
+      "context": "参考ARCHITECTURE.md 5.3.4节",
+      "steps": [
+        "实现查询文档路由",
+        "实现删除文档路由"
+      ],
+      "passes": false
+    },
+    {
+      "id": 49,
+      "title": "FastAPI - 配置接口",
+      "description": "实现配置管理接口",
+      "context": "参考ARCHITECTURE.md 5.3.8节",
+      "steps": [
+        "实现GET /api/v1/config",
+        "实现配置更新路由"
+      ],
+      "passes": false
+    },
+    {
+      "id": 50,
+      "title": "测试 - tests/conftest.py",
+      "description": "创建测试fixtures",
+      "context": "参考ARCHITECTURE.md 5.3.9节",
+      "steps": [
+        "创建tests/conftest.py",
+        "创建mock_llm fixture",
+        "创建mock_search_tool fixture",
+        "创建mock_retriever fixture"
+      ],
+      "passes": false
+    },
+    {
+      "id": 51,
+      "title": "测试 - test_planner.py",
+      "description": "测试Planner Agent",
+      "context": "参考ARCHITECTURE.md 5.3.9节",
+      "steps": [
+        "创建tests/test_planner.py",
+        "测试任务分解",
+        "测试空任务处理",
+        "测试带上下文规划"
+      ],
+      "passes": false
+    },
+    {
+      "id": 52,
+      "title": "���试 - test_search.py",
+      "description": "测试Search Agent",
+      "context": "参考ARCHITECTURE.md 5.3.9节",
+      "steps": [
+        "创建tests/test_search.py",
+        "测试搜索执行",
+        "测试空结果",
+        "测试错误处理"
+      ],
+      "passes": false
+    },
+    {
+      "id": 53,
+      "title": "测试 - test_rag.py",
+      "description": "测试RAG Agent",
+      "context": "参考ARCHITECTURE.md 5.3.9节",
+      "steps": [
+        "创建tests/test_rag.py",
+        "测试知识检索",
+        "测试空知识库",
+        "测试重排序"
+      ],
+      "passes": false
+    },
+    {
+      "id": 54,
+      "title": "测试 - test_writer.py",
+      "description": "测试Writer Agent",
+      "context": "参考ARCHITECTURE.md 5.3.9节",
+      "steps": [
+        "创建tests/test_writer.py",
+        "测试报告生成",
+        "测试空数据"
+      ],
+      "passes": false
+    },
+    {
+      "id": 55,
+      "title": "测试 - test_critic.py",
+      "description": "测试Critic Agent",
+      "context": "参考ARCHITECTURE.md 5.3.9节",
+      "steps": [
+        "创建tests/test_critic.py",
+        "测试审批通过",
+        "测试审批拒绝"
+      ],
+      "passes": false
+    },
+    {
+      "id": 56,
+      "title": "测试 - test_tools.py",
+      "description": "测试搜索和检索工具",
+      "context": "参考ARCHITECTURE.md 5.3.9节",
+      "steps": [
+        "创建tests/test_tools.py",
+        "测试SearchTool工厂",
+        "测试Retriever",
+        "测试错误处理"
+      ],
+      "passes": false
+    },
+    {
+      "id": 57,
+      "title": "测试 - test_memory.py",
+      "description": "测试Memory",
+      "context": "参考ARCHITECTURE.md 5.3.9节",
+      "steps": [
+        "创建tests/test_memory.py",
+        "测试GlobalMemory",
+        "测试SessionMemory",
+        "测试AgentMemory"
+      ],
+      "passes": false
+    },
+    {
+      "id": 58,
+      "title": "整合 - 运行验证",
+      "description": "端到端运行验证",
+      "context": "确保所有模块可以正常启动",
+      "steps": [
+        "运行init.sh",
+        "测试健康检查",
+        "测试创建查询",
+        "验证Agent协作"
       ],
       "passes": false
     }
