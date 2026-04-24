@@ -606,6 +606,293 @@ class AutoSelectSearchTool:
         return []  # 所有工具都失败
 ```
 
+#### 4.2.6 MCP真实浏览器搜索（无需API Key）
+
+当API搜索工具都不可用时，使用MCP的Browser工具调用真实浏览器搜索：
+
+```python
+# MCP真实浏览器搜索 - 无需API Key
+# 需要配置MCP Server: @smithery_ai/browser-use 或 @anthropic/browser-use
+
+class MCPSearchTool:
+    """
+    MCP真实浏览器搜索
+    优势：无需API Key，直接调用浏览器搜索
+    
+    配置要求：
+    1. 安装MCP Server: npx @smithery-ai/browser-use
+    2. 在config.yaml配置browser工具
+    3. 或使用Hermes内置的browser工具
+    """
+    
+    def __init__(self, mcp_client=None):
+        self.mcp_client = mcp_client
+        self.search_engine = "google"  # 可选: google, bing, baidu
+    
+    def search(self, query: str, num: int = 10) -> List[Dict]:
+        """使用MCP浏览器搜索"""
+        
+        # 方法1: 通过Hermes内置browser工具
+        # 需确保browser工具已加载
+        
+        # 方法2: 直接调用MCP Server
+        if self.mcp_client:
+            return self._mcp_search(query, num)
+        
+        # 方法3: 使用requests调用（如果有MCP HTTP接口）
+        return self._http_search(query, num)
+    
+    def _mcp_search(self, query: str, num: int) -> List[Dict]:
+        """通过MCP Client调用浏览器"""
+        result = self.mcp_client.call_tool(
+            "browser_navigate",
+            {"url": f"https://www.google.com/search?q={query}"}
+        )
+        # 解析结果
+        return self._parse_browser_result(result)
+    
+    def _http_search(self, query: str, num: int) -> List[Dict]:
+        """通过HTTP接口调用浏览器搜索服务"""
+        # 如果有部署的浏览器搜索服务
+        import requests
+        
+        url = os.getenv("BROWSER_SEARCH_URL", "http://localhost:3000/search")
+        params = {"q": query, "num": num}
+        
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            return response.json().get("results", [])
+        except:
+            return []
+    
+    def _parse_browser_result(self, result) -> List[Dict]:
+        """解析浏览器返回的结果"""
+        # 从页面提取搜索结果
+        # 具体实现依赖返回格式
+        results = []
+        # ... 解析逻辑
+        return results
+```
+
+#### 4.2.7 搜索工具降级策略
+
+```python
+# 搜索工具降级策略 - 核心错误处理
+class SearchToolWithFallback:
+    """带降级策略的搜索工具"""
+    
+    def __init__(self):
+        # 优先级从高到低
+        self.tools = [
+            ("api", APIBasedSearchTool),      # API搜索（需要Key）
+            ("mcp", MCPSearchTool),       # MCP浏览器（无需Key）
+            ("direct", DirectBrowserTool), # 直接浏览器
+        ]
+        self.current_tool = None
+    
+    def search(self, query: str, num: int = 10) -> List[Dict]:
+        """按优先级尝试搜索工具"""
+        
+        errors = []
+        
+        for tool_name, tool_class in self.tools:
+            try:
+                # 尝试初始化工具
+                if tool_name == "api":
+                    tool = tool_class(api_key=os.getenv("SERPER_API_KEY"))
+                else:
+                    tool = tool_class()
+                
+                # 执行搜索
+                results = tool.search(query, num)
+                
+                if results:
+                    self.current_tool = tool_name
+                    return results
+                
+            except NoAPIKeyError as e:
+                # API Key不存在，记录并继续
+                errors.append(f"{tool_name}: 无API Key")
+                continue
+                
+            except RateLimitError as e:
+                # 速率限制，尝试下一个
+                errors.append(f"{tool_name}: 速率限制")
+                continue
+                
+            except NetworkError as e:
+                # 网络错误
+                errors.append(f"{tool_name}: 网络错误")
+                continue
+        
+        # 所有工具都失败
+        raise AllSearchToolsFailedError(errors)
+    
+    def get_current_tool(self) -> str:
+        """获取当前使用的工具"""
+        return self.current_tool or "none"
+
+
+class AllSearchToolsFailedError(Exception):
+    """所有搜索工具都失败"""
+    pass
+```
+
+#### 4.2.8 错误处理机制
+
+```python
+# 完整错误处理机制
+import time
+import logging
+from enum import Enum
+from typing import List, Dict, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class SearchErrorType(Enum):
+    """搜索错误类型"""
+    NO_API_KEY = "no_api_key"
+    RATE_LIMIT = "rate_limit"
+    NETWORK_ERROR = "network_error"
+    TIMEOUT = "timeout"
+    PARSE_ERROR = "parse_error"
+    UNKNOWN = "unknown"
+
+
+class SearchErrorHandler:
+    """搜索错误处理器"""
+    
+    def __init__(self, max_retries: int = 3):
+        self.max_retries = max_retries
+        self.error_counts = {}
+    
+    def classify_error(self, error: Exception) -> SearchErrorType:
+        """错误分类"""
+        error_msg = str(error).lower()
+        
+        if "api key" in error_msg or "unauthorized" in error_msg:
+            return SearchErrorType.NO_API_KEY
+        elif "rate limit" in error_msg or "429" in error_msg:
+            return SearchErrorType.RATE_LIMIT
+        elif "timeout" in error_msg:
+            return SearchErrorType.TIMEOUT
+        elif "network" in error_msg or "connection" in error_msg:
+            return SearchErrorType.NETWORK_ERROR
+        else:
+            return SearchErrorType.UNKNOWN
+    
+    def handle_error(
+        self,
+        error: Exception,
+        tool_name: str,
+        query: str
+    ) -> Optional[List[Dict]]:
+        """处理错误，返回降级方案"""
+        
+        error_type = self.classify_error(error)
+        
+        # 记录错误
+        self.error_counts[tool_name] = self.error_counts.get(tool_name, 0) + 1
+        
+        logger.warning(f"搜索错误 - 工具: {tool_name}, 类型: {error_type.value}")
+        
+        # 根据错误类型处理
+        if error_type == SearchErrorType.NO_API_KEY:
+            # 无API Key，尝试MCP或直接浏览器
+            return self._fallback_to_mcp(query)
+            
+        elif error_type == SearchErrorType.RATE_LIMIT:
+            # 速率限制，等待后重试
+            time.sleep(5)
+            return None  # 返回None表示要重试
+            
+        elif error_type == SearchErrorType.NETWORK_ERROR:
+            # 网络错误，尝试其他工具
+            return None
+            
+        elif error_type == SearchErrorType.TIMEOUT:
+            # 超时，增加超时时间重试
+            return None
+        
+        return None
+    
+    def _fallback_to_mcp(self, query: str) -> Optional[List[Dict]]:
+        """降级到MCP搜索"""
+        try:
+            mcp_tool = MCPSearchTool()
+            return mcp_tool.search(query)
+        except Exception as e:
+            logger.error(f"MCP搜索也失败: {e}")
+            return None
+
+
+class AgentErrorHandler:
+    """Agent级别错误处理器"""
+    
+    def __init__(self):
+        self.search_handler = SearchErrorHandler()
+        self.max_iterations = 3
+    
+    def execute_with_retry(
+        self,
+        agent,
+        task: Dict,
+        context: Dict
+    ) -> Dict:
+        """带重试的执行"""
+        
+        for iteration in range(self.max_iterations):
+            try:
+                result = agent.execute(task, context)
+                
+                # 检查结果是否有效
+                if self._is_valid_result(result):
+                    return result
+                else:
+                    logger.warning(f"结果无效，尝试第{iteration+2}次")
+                    
+            except Exception as e:
+                # 处理搜索错误
+                recovery = self.search_handler.handle_error(
+                    e,
+                    agent.name,
+                    task.get("query", "")
+                )
+                
+                if recovery is not None:
+                    # 成功降级恢复
+                    return {"status": "fallback", "results": recovery}
+                
+                if iteration == self.max_iterations - 1:
+                    raise MaxRetriesExceededError(
+                        f"达到最大重试次数{self.max_iterations}"
+                    )
+        
+        return {"status": "failed", "error": "超过最大重试次数"}
+    
+    def _is_valid_result(self, result: Dict) -> bool:
+        """检查结果是否有效"""
+        if result.get("status") == "error":
+            return False
+        
+        results = result.get("results", [])
+        if not results:
+            return False
+        
+        # 检查结果质量
+        if isinstance(results, list) and len(results) < 3:
+            # 结果太少，可能质量不高
+            return False
+        
+        return True
+
+
+class MaxRetriesExceededError(Exception):
+    """超过最大重试次数"""
+    pass
+```
+
 **输入/输出示例**：
 
 ### 4.3 RAG Agent
@@ -2877,7 +3164,7 @@ flowchart TD
 |--------|------|-----------|------|
 | **P1** | RAG Agent Prompt | 知识库检索Prompt设计，混合检索策略 | ✅ 已完成 |
 | **P1** | FastAPI 接口 | CRUD接口设计，请求/响应模型 | ✅ 已完成 |
-| **P2** | 错误处理机制 | Agent执行失败处理，重试策略 | 🔲 待补充 |
+| **P2** | 错误处理机制 | Agent执行失败处理，重试策略 | ✅ 已完成 |
 | **P2** | 配置管理 | default.yaml / production.yaml 详细配置 | 🔲 待补充 |
 | **P3** | 部署配置 | Docker / docker-compose.yml | 🔲 待补充 |
 | **P3** | 监控配置 | Prometheus + Grafana 仪表盘 | 🔲 待补充 |
